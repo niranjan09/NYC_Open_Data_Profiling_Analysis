@@ -10,7 +10,7 @@ Current status of this code: executed in pyspark console, not via pyspark comman
 
 import json
 
-def mapper(x):
+def mapper_identical_vals(x):
     ans = []
     for coli, col in enumerate(x):
         try:
@@ -19,18 +19,33 @@ def mapper(x):
                 t = type(col_eval)
                 if(t == int or t == float):
                     col_eval = float(col_eval)
-                    # maintain sum, count, max, min, sum_of_squares
-                    ans.append(((coli, 'N'), ('N', col_eval, 1, col_eval, col_eval, col_eval**2)))
+                    # maintain datatype, sum, count, max, min, sum_of_squares
+                    ans.append(((coli, 'N', col_eval), ('N', col_eval, 1, col_eval, col_eval, col_eval**2)))
             else:
-                ans.append(((coli, 'None'), ('None', 1)))
+                ans.append(((coli, 'None', 'None'), ('None', 1)))
         except ValueError:
-            # maintain sum, count
-            ans.append(((coli, 'T'), ('T', len(col), 1)))
+            # maintain datatype, sum, count
+            ans.append(((coli, 'T', col), ('T', len(col), 1)))
         except SyntaxError:
             print("Error in evaluating data type for", col)
     return ans
 
-def mapper_mean_stdev(x):
+def mapper_identical_datatypes(x):
+    top5cnt_list = [(x[1][2], x[0][2]), (0, 0), (0, 0), (0, 0), (0, 0)]
+    # key = (col, datatype); value = (data_type, sum, total_count, max, min, sum_of_squares, top5cnt_list)
+    if(x[1][0] == 'N'):
+        new_list = [x[1][0], x[1][1], x[1][2], x[1][3], x[1][4], x[1][5]]
+        new_list.append(top5cnt_list)
+        new_val = tuple(new_list)
+    elif(x[1][0] == 'T'):
+        new_list = [x[1][0], x[1][1], x[1][2]]
+        new_list.append(top5cnt_list)
+        new_val = tuple(new_list)
+    elif(x[1][0] == 'None'):
+        return x
+    return ((x[0][0], x[0][1]), new_val)
+
+def map_mean_stdev(x):
     if(x[0] == 'N'):
         mean = x[1]/x[2]
         mx = x[3]
@@ -43,7 +58,19 @@ def mapper_mean_stdev(x):
     elif(x[0] == 'None'):
         return x
 
-def reducer_add(x, y):
+def reducer_identical_datatypes(x, y):
+    if(x[0] == 'N'):
+        x[6].extend(y[6])
+        red_top5cnt = sorted(x[6], key = lambda x: x[0], reverse = True)[:5]
+        return ('N', x[1] + y[1], x[2] + y[2], max(x[3], y[3]), min(x[4], y[4]), x[5] + y[5], red_top5cnt)
+    elif(x[0] == 'T'):
+        x[3].extend(y[3])
+        red_top5cnt = sorted(x[3], key = lambda x: x[0], reverse = True)[:5]
+        return ('T', x[1] + y[1], x[2] + y[2], red_top5cnt)
+    elif(x[0] == 'None'):
+        return ('None', x[1] + y[1])
+
+def reduce_identical_vals(x, y):
     if(x[0] == 'N'):
         return ('N', x[1] + y[1], x[2] + y[2], max(x[3], y[3]), min(x[4], y[4]), x[5] + y[5])
     elif(x[0] == 'T'):
@@ -54,11 +81,15 @@ def reducer_add(x, y):
 def process_dataset_rdd(dataset):
     # maps int/real, text, date, None datatypes with appropriate values to calculate
     # statistics in future
-    dataset_map = dataset.rdd.flatMap(mapper)
+    dataset_map = dataset.rdd.flatMap(mapper_identical_vals)
+    # reduce to unique values
+    dataset_red1 = dataset_map.reduceByKey(reduce_identical_vals)
+    # map to group elements by their data types
+    
     # reduce to calculate sum, count, min, max, sum of squres
-    dataset_red1 = dataset_map.reduceByKey(reducer_add)
+    
     # calculate mean, stdev
-    dataset_red2 = dataset_red1.mapValues(mapper_mean_stdev)
+    dataset_red2 = dataset_red1.mapValues(map_mean_stdev)
     #num_col = len(dataset.columns)
     print(dataset_red2.collect())
     #for coli in range(num_col):   
