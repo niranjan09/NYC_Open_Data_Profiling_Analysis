@@ -34,6 +34,8 @@ def mapper_identical_vals(x):
             print("Error in evaluating data type for", col)
     return ans
 
+
+
 def mapper_identical_datatypes(x):
     if(x[1][0] == 'I' or x[1][0] == 'R'):
         top5cnt_list = [(x[1][2], x[0][2]), (0, 0), (0, 0), (0, 0), (0, 0)]
@@ -53,6 +55,8 @@ def mapper_identical_datatypes(x):
         return x
     return ((x[0][0], x[0][1]), new_val)
 
+
+
 def map_mean_stdev(x):
     if(x[0] == 'I' or x[0] == 'R'):
         mean = x[1]/x[2]
@@ -68,6 +72,8 @@ def map_mean_stdev(x):
     elif(x[0] == 'None'):
         return x
 
+
+
 def reduce_identical_datatypes(x, y):
     if(x[0] == 'I' or x[0] == 'R'):
         x[6].extend(y[6])
@@ -80,6 +86,8 @@ def reduce_identical_datatypes(x, y):
     elif(x[0] == 'None'):
         return ('None', x[1] + y[1])
 
+
+
 def reduce_identical_vals(x, y):
     if(x[0] == 'I' or x[0] == 'R'):
         return ('R', x[1] + y[1], x[2] + y[2], max(x[3], y[3]), min(x[4], y[4]), x[5] + y[5])
@@ -87,6 +95,8 @@ def reduce_identical_vals(x, y):
         return ('T', x[1] + y[1], x[2] + y[2])
     elif(x[0] == 'None'):
         return ('None', x[1] + y[1])
+
+
 
 def process_dataset_rdd(dataset_rdd):
     # maps int/real, text, date, None datatypes with appropriate values to calculate
@@ -105,9 +115,11 @@ def process_dataset_rdd(dataset_rdd):
     #for coli in range(num_col):   
         #dataset_num_map = dataset_map.filter(lambda x)    
 
+
+
 import time
 def process_datasets():
-    print(time.time)
+    start_time = time.time()
     df_datasets = spark.read.csv("/user/hm74/NYCOpenData/datasets.tsv",header=False,sep="\t")
     processed_dataset_cnt = 0
     for dataset_row in df_datasets.collect():
@@ -116,9 +128,11 @@ def process_datasets():
         dataset = spark.read.csv("/user/hm74/NYCOpenData/" + dataset_fname + ".tsv.gz", header = True, sep = "\t")
         process_dataset_rdd(dataset.rdd)
         processed_dataset_cnt += 1
-        #break
+        break
         if(processed_dataset_cnt == 50):
             break
+    print(time.time() - start_time)
+
 
 
 process_datasets()
