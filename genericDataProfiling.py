@@ -2,9 +2,8 @@
 Current status of this code: executed in pyspark console, not via pyspark command
 
 #TO-DO:
-    2. only statistics for numeric data type is calculated properly
-        for other data types, it is not calculated
-    3. Printing into json file
+    1. Printing into json file
+    2. Proper handling of overflow errors due to large float values
 """
 import pyspark
 from pyspark.sql import SparkSession
@@ -98,29 +97,33 @@ def mapper_identical_datatypes(x):
 
 
 
-def map_mean_stdev(x):
-    if(x[0] == 'I' or x[0] == 'R'):
-        tot_cnt = x[2]
-        mean = x[1]/x[2]
-        mx = x[3]
-        mn = x[4]
-        stdev = (x[5]/x[2] - mean**2)**0.5
-        tcnt_list = x[6]
-        dist_cnt = x[7]
-        return (x[0], tot_cnt, mean, mx, mn, stdev, tcnt_list, dist_cnt)
-    elif(x[0] == 'T'):
-        mean = x[1]/x[2]
+def mapper_identical_columns(x):
+    if(x[1][0] == 'I' or x[1][0] == 'R'):
+        tot_cnt = x[1][2]
+        mean = x[1][1]/x[1][2]
+        mx = x[1][3]
+        mn = x[1][4]
+        stdev = (x[1][5]/x[1][2] - mean**2)**0.5
+        tcnt_list = x[1][6]
+        dist_cnt = x[1][7]
+        return ((x[0][0], x[0][1]), {x[1][0]: (tot_cnt, mean, mx, mn, stdev, tcnt_list, dist_cnt)})
+    elif(x[1][0] == 'T'):
+        mean = x[1][1]/x[1][2]
         # datatype, tot_cnt, mean, t5cnt, dist_cnt, long5, short5
-        return ('T', x[2], mean, x[3], x[4], x[5], x[6])
-    elif(x[0] == 'D'):
+        return ((x[0][0], x[0][1]), {'T': (x[1][2], mean, x[1][3], x[1][4], x[1][5], x[1][6])})
+    elif(x[1][0] == 'D'):
         # datatype, count, max, min, top5cnt, dist_cnt
-        return x
-    elif(x[0] == 'None'):
+        return ((x[0][0], x[0][1]), {'D': x[1][1:]})
+    elif(x[1][0] == 'None'):
         # datatype, count
-        return x
+        return ((x[0][0], x[0][1]), {x[1][0]: (x[1][1])})
 
 
 
+def mapper_identical_datasets(x):
+    column_obj = {"column_name": x[0][1], "number_non_empty_cells": 0, "number_empty_cells": 0, "number_distinct_values": 0, "frequent_values": [], "data_types": []}
+    
+    
 def reduce_identical_datatypes(x, y):
     if(x[0] == 'I' or x[0] == 'R'):
         x[6].extend(y[6])
@@ -169,6 +172,12 @@ def reduce_identical_vals(x, y):
 
 
 
+def reduce_identical_columns(x, y):
+    x.update(y)
+    return x
+
+
+
 def process_dataset_rdd(dataset_rdd):
     # maps int/real, text, date, None datatypes with appropriate values to calculate
     # respective statistics in future
@@ -180,9 +189,11 @@ def process_dataset_rdd(dataset_rdd):
     # reduce to calculate sum, count, min, max, sum of squres
     dataset_red2 = dataset_map2.reduceByKey(reduce_identical_datatypes)
     # calculate mean, max, min, stdev, top_5_cnt_list, dist_cnt
-    dataset_map3 = dataset_red2.mapValues(map_mean_stdev)
-    #num_col = len(dataset.columns)
-    print(dataset_map3.collect())
+    dataset_map3 = dataset_red2.map(mapper_identical_columns)
+    # group by columns
+    dataset_red3 = dataset_map3.reduceByKey(reduce_identical_columns)
+    
+    print(dataset_red3.collect())
     #for coli in range(num_col):   
         #dataset_num_map = dataset_map.filter(lambda x)    
 
