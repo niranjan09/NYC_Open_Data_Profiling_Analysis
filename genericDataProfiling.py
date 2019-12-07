@@ -122,8 +122,39 @@ def mapper_identical_columns(x):
 
 def mapper_identical_datasets(x):
     column_obj = {"column_name": x[0][1], "number_non_empty_cells": 0, "number_empty_cells": 0, "number_distinct_values": 0, "frequent_values": [], "data_types": []}
-    
-    
+    for dtype, dinfo in x[1].items():
+        if(dtype == 'I' or dtype == 'R'):
+            column_obj['number_non_empty_cells'] += dinfo[0]
+            column_obj['number_distinct_values'] += dinfo[6]
+            column_obj['frequent_values'].extend(dinfo[5])
+            if(dtype == 'I'):
+                tp = "INTEGER (LONG)"
+            else:
+                tp = "REAL"
+            data_type_obj = {"type": tp, "count": dinfo[0], "max_value": dinfo[2], "min_value": dinfo[3], "mean": dinfo[1], "stddev": dinfo[4]}
+            column_obj['data_types'].append(data_type_obj)
+        elif(dtype == 'T'):
+            column_obj['number_non_empty_cells'] += dinfo[0]
+            column_obj['number_distinct_values'] += dinfo[3]
+            column_obj['frequent_values'].extend(dinfo[2])
+            sl = [dinfo[5][0][1], dinfo[5][1][1], dinfo[5][2][1], dinfo[5][3][1], dinfo[5][4][1]]
+            ll = [dinfo[4][0][1], dinfo[4][1][1], dinfo[4][2][1], dinfo[4][3][1], dinfo[4][4][1]]
+            data_type_obj = {"type": 'T', "count": dinfo[0], "shortest_values": sl, "longest_values": ll, "average_length": dinfo[1]}
+            column_obj['data_types'].append(data_type_obj)
+        elif(dtype == 'D'):
+            column_obj['number_non_empty_cells'] += dinfo[0]
+            column_obj['number_distinct_values'] += dinfo[4]
+            column_obj['frequent_values'].extend(dinfo[3])
+            data_type_obj = {"type": 'DATE/TIME', "count": dinfo[0], "max_value": dinfo[1][0], "min_value": dinfo[2][0]}
+            column_obj['data_types'].append(data_type_obj)
+        elif(dtype == 'None'):
+            column_obj['number_empty_cells'] = dinfo[0]
+    column_obj['frequent_values'] = sorted(column_obj['frequent_values'], key = lambda x: x[0], reverse = True)[:5]
+    column_obj['frequent_values'] = [x[1] for x in column_obj['frequent_values']]
+    return ((x[0][0]), column_obj)
+
+
+
 def reduce_identical_datatypes(x, y):
     if(x[0] == 'I' or x[0] == 'R'):
         x[6].extend(y[6])
@@ -192,6 +223,8 @@ def process_dataset_rdd(dataset_rdd):
     dataset_map3 = dataset_red2.map(mapper_identical_columns)
     # group by columns
     dataset_red3 = dataset_map3.reduceByKey(reduce_identical_columns)
+    # generate required output structure of info of each column
+    dataset_map4 = dataset_red3.map(mapper_identical_datasets)
     
     print(dataset_red3.collect())
     #for coli in range(num_col):   
