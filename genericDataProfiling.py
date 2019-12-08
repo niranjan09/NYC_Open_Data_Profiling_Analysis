@@ -3,12 +3,11 @@ Current status of this code: executed in pyspark console, not via pyspark comman
 
 #TO-DO:
     1. Printing into json file
-    2. Proper handling of overflow errors due to large float values
 """
 import pyspark
 from pyspark.sql import SparkSession
 
-conf = pyspark.SparkConf().setAll([('spark.driver.memory','240g'), ('spark.executor.memory', '24g'), ('spark.dynamicAllocation.enabled', 'true'), ('spark.executor.cores', '4'), ('spark.executor.instances', '32')])
+conf = pyspark.SparkConf().setAll([('spark.driver.memory','240g'), ('spark.executor.memory', '24g'), ('spark.dynamicAllocation.enabled', 'true'), ('spark.executor.cores', '4'), ('spark.executor.instances', '6')])
 
 
 #sc.stop()
@@ -21,6 +20,7 @@ from pyspark.sql.functions import lit
 from dateutil.parser import parse
 import json
 import time
+from decimal import Decimal
 
 def mapper_identical_vals(x):
     ans = []
@@ -40,7 +40,8 @@ def mapper_identical_vals(x):
                     try:
                         ans.append(((dataset_name, coli, 'R', col_eval), ('R', col_eval, 1, col_eval, col_eval, col_eval**2)))
                     except OverflowError as err:
-                        print('Overflowed after ', x, err)
+                        #print("Overflow exception occurred", coli, col, x[-1])
+                        ans.append(((dataset_name, coli, 'T', col), ('T', len(col), 1)))
             else:
                 ans.append(((dataset_name, coli, 'None', 'None'), ('None', 1)))
         except ValueError:
@@ -63,7 +64,7 @@ def mapper_identical_datatypes(x):
     if(x[1][0] == 'I' or x[1][0] == 'R'):
         top5cnt_list = [(x[1][2], x[0][3]), (0, 0), (0, 0), (0, 0), (0, 0)]
         # key = (col, datatype); value = (data_type, sum, total_count, max,     \
-        # min, sum_of_squares, distinct_cnt, top5cnt_list)
+        # min, sum_of_squares, top5cnt_list, distinct_cnt)
         new_list = [x[1][0], x[1][1], x[1][2], x[1][3], x[1][4], x[1][5]]
         new_list.append(top5cnt_list)
         new_list.append(1)
@@ -116,7 +117,7 @@ def mapper_identical_columns(x):
         return ((x[0][0], x[0][1]), {'D': x[1][1:]})
     elif(x[1][0] == 'None'):
         # datatype, count
-        return ((x[0][0], x[0][1]), {x[1][0]: (x[1][1])})
+        return ((x[0][0], x[0][1]), {x[1][0]: x[1][1]})
 
 
 
@@ -139,7 +140,7 @@ def mapper_identical_datasets(x):
             column_obj['frequent_values'].extend(dinfo[2])
             sl = [dinfo[5][0][1], dinfo[5][1][1], dinfo[5][2][1], dinfo[5][3][1], dinfo[5][4][1]]
             ll = [dinfo[4][0][1], dinfo[4][1][1], dinfo[4][2][1], dinfo[4][3][1], dinfo[4][4][1]]
-            data_type_obj = {"type": 'T', "count": dinfo[0], "shortest_values": sl, "longest_values": ll, "average_length": dinfo[1]}
+            data_type_obj = {"type": 'TEXT', "count": dinfo[0], "shortest_values": sl, "longest_values": ll, "average_length": dinfo[1]}
             column_obj['data_types'].append(data_type_obj)
         elif(dtype == 'D'):
             column_obj['number_non_empty_cells'] += dinfo[0]
@@ -148,10 +149,10 @@ def mapper_identical_datasets(x):
             data_type_obj = {"type": 'DATE/TIME', "count": dinfo[0], "max_value": dinfo[1][0], "min_value": dinfo[2][0]}
             column_obj['data_types'].append(data_type_obj)
         elif(dtype == 'None'):
-            column_obj['number_empty_cells'] = dinfo[0]
+            column_obj['number_empty_cells'] = dinfo
     column_obj['frequent_values'] = sorted(column_obj['frequent_values'], key = lambda x: x[0], reverse = True)[:5]
     column_obj['frequent_values'] = [x[1] for x in column_obj['frequent_values']]
-    return ((x[0][0]), column_obj)
+    return ((x[0][0]), [column_obj])
 
 
 
@@ -193,8 +194,8 @@ def reduce_identical_vals(x, y):
         # type, sum, count, min, max, sum of squares
         return (x[0], x[1] + y[1], x[2] + y[2], x[3], x[4], x[5] + y[5])
     elif(x[0] == 'T'):
-        # type, dist value, sum, count
-        return ('T', x[1] + y[1], x[2] + y[2], x[3], x[4])
+        # type, sum, count
+        return ('T', x[1] + y[1], x[2] + y[2])
     elif(x[0] == 'D'):
         # type, parsed_date, count
         return ('D', x[1], x[2] + y[2])
@@ -209,24 +210,38 @@ def reduce_identical_columns(x, y):
 
 
 
+def reduce_identical_datasets(x, y):
+    x.extend(y)
+    return x
+
+
+
 def process_dataset_rdd(dataset_rdd):
     # maps int/real, text, date, None datatypes with appropriate values to calculate
     # respective statistics in future
     dataset_map1 = dataset_rdd.flatMap(mapper_identical_vals)
+    print("map 1 complete")
     # reduce to unique values
     dataset_red1 = dataset_map1.reduceByKey(reduce_identical_vals)
+    print("reduce 1 complete")
     # map to group elements by their data types
     dataset_map2 = dataset_red1.map(mapper_identical_datatypes)
+    print("map 2 complete")
     # reduce to calculate sum, count, min, max, sum of squres
     dataset_red2 = dataset_map2.reduceByKey(reduce_identical_datatypes)
+    print("reduce 2 complete")
     # calculate mean, max, min, stdev, top_5_cnt_list, dist_cnt
     dataset_map3 = dataset_red2.map(mapper_identical_columns)
+    print("map 3 complete")
     # group by columns
     dataset_red3 = dataset_map3.reduceByKey(reduce_identical_columns)
+    print("reduce 3 complete")
     # generate required output structure of info of each column
     dataset_map4 = dataset_red3.map(mapper_identical_datasets)
-    
-    print(dataset_red3.collect())
+    # groupby datasets
+    dataset_red4 = dataset_map4.reduceByKey(reduce_identical_datasets)
+    return dataset_red4.collect()
+    #print(dataset_red4.collect())
     #for coli in range(num_col):   
         #dataset_num_map = dataset_map.filter(lambda x)    
 
@@ -236,14 +251,26 @@ def process_datasets():
     start_time = time.time()
     df_datasets = spark.read.csv("/user/hm74/NYCOpenData/datasets.tsv",header=False,sep="\t")
     processed_dataset_cnt = 0
-    for dataset_row in df_datasets.collect():
+    for dataset_row in sorted(df_datasets.collect()):
         dataset_fname = dataset_row[0]
         print(dataset_fname)
         dataset = spark.read.csv("/user/hm74/NYCOpenData/" + dataset_fname + ".tsv.gz", header = True, sep = "\t")
+        col_list = dataset.columns
         dataset = dataset.withColumn("dataset_name", lit(dataset_fname))
-        process_dataset_rdd(dataset.rdd)
+        dsinfo = process_dataset_rdd(dataset.rdd)[0][1]
+        dsinfo.sort(key = lambda x: x['column_name'], reverse = False)
+        ds_obj = {"dataset_name": dataset_fname, "columns": [], "key_column_candidates": []}
+        for coli in range(len(dsinfo)):
+            cur_col = dsinfo[coli]
+            cur_col["column_name"] = col_list[coli]
+            ds_obj["columns"].append(cur_col)
+            if(cur_col["number_non_empty_cells"] == cur_col["number_distinct_values"]):
+                ds_obj["key_column_candidates"].append(col_list[coli])
+        with open(dataset_fname + '.json', 'w+') as json_out_file:
+            json.dump(ds_obj, json_out_file)
+        
         processed_dataset_cnt += 1
-        break
+        #break
         if(processed_dataset_cnt == 50):
             break
     print(time.time() - start_time)
@@ -255,19 +282,36 @@ def process_datasets_parallel():
     df_datasets = spark.read.csv("/user/hm74/NYCOpenData/datasets.tsv",header=False,sep="\t")
     processed_dataset_cnt = 0
     datasets_rdd_list = []
-    for dataset_i, dataset_row in enumerate(df_datasets.collect()):
+    datasets_dict = {}
+    for dataset_i, dataset_row in enumerate(sorted(df_datasets.collect())):
         dataset_fname = dataset_row[0]
         print(dataset_fname)
         dataset = spark.read.csv("/user/hm74/NYCOpenData/" + dataset_fname + ".tsv.gz", header = True, sep = "\t")
+        dataset_dict[dataset_fname] = dataset.columns
         dataset = dataset.withColumn("dataset_name", lit(dataset_fname))
         datasets_rdd_list.append(dataset.rdd)
+        datasets_dict[dataset_fname]
         processed_dataset_cnt += 1
         if(processed_dataset_cnt == 50):
             break
     datasets_rdd = sc.union(datasets_rdd_list)
     print(time.time() - start_time)
     #print(datasets_rdd.count())
-    process_dataset_rdd(datasets_rdd)
+    dssinfo = process_dataset_rdd(datasets_rdd)
+    for dsi in range(len(dssinfo)):
+        dsinfo = dssinfo[dsi][1]
+        dataset_fname = dssinfo[dsi][0]
+        col_list = datasets_dict[dataset_fname]
+        dsinfo.sort(key = lambda x: x['column_name'], reverse = False)
+        ds_obj = {"dataset_name": dataset_fname, "columns": [], "key_column_candidates": []}
+        for coli in range(len(dsinfo)):
+            cur_col = dsinfo[coli]
+            cur_col["column_name"] = col_list[coli]
+            ds_obj["columns"].append(cur_col)
+            if(cur_col["number_non_empty_cells"] == cur_col["number_distinct_values"]):
+                ds_obj["key_column_candidates"].append(col_list[coli])
+        with open(dataset_fname + '.json', 'w+') as json_out_file:
+            json.dump(ds_obj, json_out_file)
     print(time.time() - start_time)
 
 
