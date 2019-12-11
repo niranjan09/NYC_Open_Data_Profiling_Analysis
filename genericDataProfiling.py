@@ -4,7 +4,7 @@ Current status of this code: Everything working correctly, creating separate jso
 import pyspark
 from pyspark.sql import SparkSession
 
-conf = pyspark.SparkConf().setAll([('spark.driver.memory','16g'), ('spark.executor.memory', '8g'), ('spark.executor.cores', '4'), ('spark.executor.instances', '3')])
+conf = pyspark.SparkConf().setAll([('spark.driver.memory','32g'), ('spark.executor.memory', '8g'), ('spark.executor.cores', '4'), ('spark.executor.instances', '6')])
 
 sc = pyspark.SparkContext(conf=conf)
 spark = SparkSession(sc)
@@ -279,7 +279,7 @@ def process_datasets_parallel():
     processed_dataset_cnt = 0
     datasets_rdd_list = []
     datasets_dict = {}
-    for dataset_i, dataset_row in enumerate(sorted(df_datasets.collect())[500:1000]):
+    for dataset_i, dataset_row in enumerate(sorted(df_datasets.collect())):
         dataset_fname = dataset_row[0]
         print(dataset_fname)
         dataset = spark.read.csv("/user/hm74/NYCOpenData/" + dataset_fname + ".tsv.gz", header = True, sep = "\t")
@@ -313,5 +313,5 @@ def process_datasets_parallel():
     print(time.time() - start_time)
 
 
-process_datasets()
-#process_datasets_parallel()
+#process_datasets()
+process_datasets_parallel()
