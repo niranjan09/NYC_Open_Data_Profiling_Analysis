@@ -143,14 +143,23 @@ for rowi, row in enumerate(manual_labels[1:]):
 
 
 
-"""
 sns.heatmap(conf_matrix, annot = True, cbar = False)
 plt.ylabel('True Label')
 plt.xlabel('Predicted Label')
 plt.show()            
 """    
+"""
+prec = []
+rec = []
+cat_list = list(categories)
 
-    
+# precision, recall
+for ci in range(no_of_categories):
+    prec.append(conf_matrix[ci][ci]/np.sum(conf_matrix[:, ci]))
+    rec.append(conf_matrix[ci][ci]/np.sum(conf_matrix[ci, :]))
+
+for ci in range(no_of_categories):
+    print(cat_list[ci], ',', prec[ci], ',', rec[ci])
 
 
 
