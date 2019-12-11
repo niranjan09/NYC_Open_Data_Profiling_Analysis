@@ -1,16 +1,11 @@
 """
-Current status of this code: executed in pyspark console, not via pyspark command
-
-#TO-DO:
-    1. Printing into json file
+Current status of this code: Everything working correctly, creating separate json for each dataset.
 """
 import pyspark
 from pyspark.sql import SparkSession
 
-conf = pyspark.SparkConf().setAll([('spark.driver.memory','240g'), ('spark.executor.memory', '24g'), ('spark.dynamicAllocation.enabled', 'true'), ('spark.executor.cores', '4'), ('spark.executor.instances', '6')])
+conf = pyspark.SparkConf().setAll([('spark.driver.memory','16g'), ('spark.executor.memory', '8g'), ('spark.executor.cores', '4'), ('spark.executor.instances', '3')])
 
-
-#sc.stop()
 sc = pyspark.SparkContext(conf=conf)
 spark = SparkSession(sc)
 
@@ -20,7 +15,6 @@ from pyspark.sql.functions import lit
 from dateutil.parser import parse
 import json
 import time
-from decimal import Decimal
 
 def mapper_identical_vals(x):
     ans = []
@@ -47,7 +41,7 @@ def mapper_identical_vals(x):
         except ValueError:
             # check whether it is of type DATE
             try:
-                parsed_date = parse(col)
+                parsed_date = parse(col, ignoretz = True)
                 # treat as a DATE type: datatype, parsed_date, count
                 # parsed_date can be used as a key, but we will maintain original value for future use
                 ans.append(((dataset_name, coli, 'D', col), ('D', parsed_date, 1)))
@@ -104,7 +98,7 @@ def mapper_identical_columns(x):
         mean = x[1][1]/x[1][2]
         mx = x[1][3]
         mn = x[1][4]
-        stdev = (x[1][5]/x[1][2] - mean**2)**0.5
+        stdev = (abs(x[1][5]/x[1][2] - mean**2))**0.5
         tcnt_list = x[1][6]
         dist_cnt = x[1][7]
         return ((x[0][0], x[0][1]), {x[1][0]: (tot_cnt, mean, mx, mn, stdev, tcnt_list, dist_cnt)})
@@ -241,9 +235,6 @@ def process_dataset_rdd(dataset_rdd):
     # groupby datasets
     dataset_red4 = dataset_map4.reduceByKey(reduce_identical_datasets)
     return dataset_red4.collect()
-    #print(dataset_red4.collect())
-    #for coli in range(num_col):   
-        #dataset_num_map = dataset_map.filter(lambda x)    
 
 
 
@@ -251,28 +242,33 @@ def process_datasets():
     start_time = time.time()
     df_datasets = spark.read.csv("/user/hm74/NYCOpenData/datasets.tsv",header=False,sep="\t")
     processed_dataset_cnt = 0
-    for dataset_row in sorted(df_datasets.collect()):
-        dataset_fname = dataset_row[0]
+    #for dataset_row in sorted(df_datasets.collect())[1000:1300]:
+    datasets_list = ['xjtr-h2x2', 'y7az-s7wc', 'ydkf-mpxb', 'yini-w76t', 'yjxr-fw8i']
+    for dataset_fname in datasets_list:
+        # this line required if running in normal mode!
+        #dataset_fname = dataset_row[0]
         print(dataset_fname)
+        print(time.time())
         dataset = spark.read.csv("/user/hm74/NYCOpenData/" + dataset_fname + ".tsv.gz", header = True, sep = "\t")
         col_list = dataset.columns
         dataset = dataset.withColumn("dataset_name", lit(dataset_fname))
-        dsinfo = process_dataset_rdd(dataset.rdd)[0][1]
+        dataset_rdd = dataset.rdd
+        #dataset_rdd.repartition(8)
+        dsinfo = process_dataset_rdd(dataset_rdd)[0][1]
         dsinfo.sort(key = lambda x: x['column_name'], reverse = False)
         ds_obj = {"dataset_name": dataset_fname, "columns": [], "key_column_candidates": []}
         for coli in range(len(dsinfo)):
             cur_col = dsinfo[coli]
             cur_col["column_name"] = col_list[coli]
             ds_obj["columns"].append(cur_col)
-            if(cur_col["number_non_empty_cells"] == cur_col["number_distinct_values"]):
+            if(cur_col["number_non_empty_cells"] == cur_col["number_distinct_values"] and cur_col['number_empty_cells'] == 0):
                 ds_obj["key_column_candidates"].append(col_list[coli])
         with open(dataset_fname + '.json', 'w+') as json_out_file:
             json.dump(ds_obj, json_out_file)
-        
         processed_dataset_cnt += 1
         #break
-        if(processed_dataset_cnt == 50):
-            break
+        #if(processed_dataset_cnt == 10):
+        #    break
     print(time.time() - start_time)
 
 
@@ -283,18 +279,20 @@ def process_datasets_parallel():
     processed_dataset_cnt = 0
     datasets_rdd_list = []
     datasets_dict = {}
-    for dataset_i, dataset_row in enumerate(sorted(df_datasets.collect())):
+    for dataset_i, dataset_row in enumerate(sorted(df_datasets.collect())[500:1000]):
         dataset_fname = dataset_row[0]
         print(dataset_fname)
         dataset = spark.read.csv("/user/hm74/NYCOpenData/" + dataset_fname + ".tsv.gz", header = True, sep = "\t")
-        dataset_dict[dataset_fname] = dataset.columns
+        datasets_dict[dataset_fname] = dataset.columns
         dataset = dataset.withColumn("dataset_name", lit(dataset_fname))
         datasets_rdd_list.append(dataset.rdd)
-        datasets_dict[dataset_fname]
         processed_dataset_cnt += 1
-        if(processed_dataset_cnt == 50):
-            break
+        #if(processed_dataset_cnt == 10):
+        #    break
     datasets_rdd = sc.union(datasets_rdd_list)
+    print(datasets_rdd.getNumPartitions())
+    print(sc._jsc.sc().getExecutorMemoryStatus().keySet().size())
+    datasets_rdd.repartition(64)
     print(time.time() - start_time)
     #print(datasets_rdd.count())
     dssinfo = process_dataset_rdd(datasets_rdd)
@@ -308,7 +306,7 @@ def process_datasets_parallel():
             cur_col = dsinfo[coli]
             cur_col["column_name"] = col_list[coli]
             ds_obj["columns"].append(cur_col)
-            if(cur_col["number_non_empty_cells"] == cur_col["number_distinct_values"]):
+            if(cur_col["number_non_empty_cells"] == cur_col["number_distinct_values"] and cur_col['number_empty_cells'] == 0):
                 ds_obj["key_column_candidates"].append(col_list[coli])
         with open(dataset_fname + '.json', 'w+') as json_out_file:
             json.dump(ds_obj, json_out_file)
