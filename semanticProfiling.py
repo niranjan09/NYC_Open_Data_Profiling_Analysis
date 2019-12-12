@@ -185,3 +185,24 @@ print(freq_count)
 # prints: category of city clinic is hospital
 print('the category of', col_val, 'is', similar_words[freq_count.index(max(freq_count))])
 
+
+"""
+Just like google search, another simple technique is to use duckduckgo api, it gives summary for most of the terms/text
+"""
+query = 'nyu langone'
+query = query.replace(' ', '+')
+url = 'https://api.duckduckgo.com/?q=' + query + '&format=json&pretty=1'
+q_rep = json.loads(urlopen(url).read().decode("utf-8"))
+# prints abstract about query term,which can be processed futher to determine category
+print(q_rep['Abstract'])
+
+
+
+
+
+
+
+
+
+
+
