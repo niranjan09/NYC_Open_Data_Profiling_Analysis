@@ -163,5 +163,25 @@ for ci in range(no_of_categories):
 
 
 
+"""
+following is sample code, didnt work with pyspark cluster
+"""
 
+from urllib.request import urlopen
+from googlesearch import search
+# google search api
+
+col_val = 'google'
+url_list = list(search(col_val, stop=10))
+freq_count = [0, 0]
+similar_words = ['company', 'hospital']
+
+for url in url_list:
+    for si, simword in enumerate(similar_words):
+        freq_count[si] += str(urlopen(url).read()).count(simword)
+
+print(freq_count)
+# prints: category of google is company
+# prints: category of city clinic is hospital
+print('the category of', col_val, 'is', similar_words[freq_count.index(max(freq_count))])
 
